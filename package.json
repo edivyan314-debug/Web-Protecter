@@ -1,0 +1,24 @@
+{
+  "name": "web-protector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack URL phishing and safety risk scanner with SQLite persistence",
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "start:backend": "cd backend && npm start",
+    "build:frontend": "cd frontend && npm run build",
+    "test:backend": "cd backend && npm test"
+  },
+  "keywords": [
+    "phishing-detection",
+    "url-scanner",
+    "cybersecurity",
+    "heuristics",
+    "express",
+    "react",
+    "sqlite"
+  ],
+  "author": "",
+  "license": "MIT"
+}
