@@ -1,125 +1,94 @@
-const fs = require('fs');
-const path = require('path');
-const Database = require('better-sqlite3');
+const mongoose = require('mongoose');
 
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Connect to MongoDB using MONGODB_URI environment variable
+const connectDB = async () => {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    console.warn('⚠️  MONGODB_URI is not defined. Please configure MONGODB_URI in Render environment variables or .env file.');
+    return;
+  }
+
+  try {
+    await mongoose.connect(uri);
+    console.log('🍃 Connected to MongoDB successfully');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+  }
+};
+
+// Automatically initiate MongoDB connection if URI is available
+if (process.env.MONGODB_URI) {
+  connectDB();
 }
 
-const dbPath = path.join(dataDir, 'scans.db');
-const db = new Database(dbPath);
+// Mongoose schema for Scan records
+const scanSchema = new mongoose.Schema(
+  {
+    url: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    hostname: {
+      type: String,
+      default: ''
+    },
+    riskScore: {
+      type: Number,
+      required: true
+    },
+    riskLevel: {
+      type: String,
+      required: true
+    },
+    confidence: {
+      type: Number,
+      required: true
+    },
+    summary: {
+      type: String,
+      default: ''
+    },
+    features: {
+      type: Array,
+      default: []
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    timestamps: true,
+    toJSON: {
+      virtuals: true,
+      transform: (doc, ret) => {
+        ret.id = ret._id ? ret._id.toString() : ret.id;
+        if (!ret.timestamp && ret.createdAt) {
+          ret.timestamp = ret.createdAt;
+        }
+        return ret;
+      }
+    },
+    toObject: {
+      virtuals: true,
+      transform: (doc, ret) => {
+        ret.id = ret._id ? ret._id.toString() : ret.id;
+        return ret;
+      }
+    }
+  }
+);
 
-// Enable WAL mode for fast concurrent reads and writes
-db.pragma('journal_mode = WAL');
+// Virtual getter for id
+scanSchema.virtual('id').get(function () {
+  return this._id ? this._id.toString() : undefined;
+});
 
-// Initialize scans schema
-db.exec(`
-  CREATE TABLE IF NOT EXISTS scans (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    url TEXT NOT NULL,
-    hostname TEXT,
-    risk_score INTEGER NOT NULL,
-    risk_level TEXT NOT NULL,
-    confidence INTEGER NOT NULL,
-    summary TEXT,
-    features_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-/**
- * Save a new scan result
- */
-function saveScan(scan) {
-  const stmt = db.prepare(`
-    INSERT INTO scans (url, hostname, risk_score, risk_level, confidence, summary, features_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const info = stmt.run(
-    scan.url,
-    scan.hostname || '',
-    scan.riskScore,
-    scan.riskLevel,
-    scan.confidence,
-    scan.summary || '',
-    JSON.stringify(scan.features || [])
-  );
-
-  return getScanById(info.lastInsertRowid);
-}
-
-/**
- * Retrieve a scan by ID
- */
-function getScanById(id) {
-  const stmt = db.prepare(`
-    SELECT * FROM scans WHERE id = ?
-  `);
-  const row = stmt.get(id);
-  if (!row) return null;
-
-  return {
-    id: row.id,
-    url: row.url,
-    hostname: row.hostname,
-    riskScore: row.risk_score,
-    riskLevel: row.risk_level,
-    confidence: row.confidence,
-    summary: row.summary,
-    features: JSON.parse(row.features_json),
-    createdAt: row.created_at
-  };
-}
-
-/**
- * Get all scans, ordered from newest to oldest
- */
-function getAllScans(limit = 100) {
-  const stmt = db.prepare(`
-    SELECT * FROM scans ORDER BY id DESC LIMIT ?
-  `);
-  const rows = stmt.all(limit);
-
-  return rows.map(row => ({
-    id: row.id,
-    url: row.url,
-    hostname: row.hostname,
-    riskScore: row.risk_score,
-    riskLevel: row.risk_level,
-    confidence: row.confidence,
-    summary: row.summary,
-    features: JSON.parse(row.features_json),
-    createdAt: row.created_at
-  }));
-}
-
-/**
- * Delete a scan by ID
- */
-function deleteScan(id) {
-  const stmt = db.prepare(`
-    DELETE FROM scans WHERE id = ?
-  `);
-  const result = stmt.run(id);
-  return result.changes > 0;
-}
-
-/**
- * Clear all history (optional utility)
- */
-function clearAllScans() {
-  const stmt = db.prepare(`DELETE FROM scans`);
-  stmt.run();
-  return true;
-}
+const Scan = mongoose.models.Scan || mongoose.model('Scan', scanSchema);
 
 module.exports = {
-  db,
-  saveScan,
-  getScanById,
-  getAllScans,
-  deleteScan,
-  clearAllScans
+  mongoose,
+  Scan,
+  connectDB
 };

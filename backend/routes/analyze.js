@@ -1,14 +1,18 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const { analyzeUrl } = require('../services/ruleEngine');
-const { saveScan, getAllScans, deleteScan, getScanById, clearAllScans } = require('../database');
+const { Scan } = require('../database');
+
+// In-memory fallback if MongoDB is not connected (e.g. during offline test suites without MONGODB_URI)
+let memoryScans = [];
 
 /**
  * POST /api/analyze
  * Accepts { url: string }
- * Returns analyzed score, features, and persisted scan record
+ * Returns analyzed score, features, and persisted scan record using Mongoose Scan model
  */
-router.post('/analyze', (req, res) => {
+router.post('/analyze', async (req, res) => {
   try {
     const { url } = req.body;
 
@@ -19,7 +23,41 @@ router.post('/analyze', (req, res) => {
     }
 
     const analysisResult = analyzeUrl(url);
-    const savedRecord = saveScan(analysisResult);
+
+    let savedRecord;
+
+    if (mongoose.connection.readyState === 1) {
+      // Persist using Mongoose model
+      const scanDoc = new Scan({
+        url: analysisResult.url,
+        hostname: analysisResult.hostname || '',
+        riskScore: analysisResult.riskScore,
+        riskLevel: analysisResult.riskLevel,
+        confidence: analysisResult.confidence,
+        summary: analysisResult.summary || '',
+        features: analysisResult.features || [],
+        timestamp: new Date()
+      });
+
+      savedRecord = await scanDoc.save();
+    } else {
+      // Offline fallback for testing
+      const id = new mongoose.Types.ObjectId().toString();
+      savedRecord = {
+        id,
+        _id: id,
+        url: analysisResult.url,
+        hostname: analysisResult.hostname || '',
+        riskScore: analysisResult.riskScore,
+        riskLevel: analysisResult.riskLevel,
+        confidence: analysisResult.confidence,
+        summary: analysisResult.summary || '',
+        features: analysisResult.features || [],
+        timestamp: new Date(),
+        createdAt: new Date()
+      };
+      memoryScans.unshift(savedRecord);
+    }
 
     return res.status(200).json({
       success: true,
@@ -34,12 +72,21 @@ router.post('/analyze', (req, res) => {
 
 /**
  * GET /api/history
- * Returns list of previous scans
+ * Returns list of previous scans from MongoDB using Mongoose Scan model
  */
-router.get('/history', (req, res) => {
+router.get('/history', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit, 10) || 50;
-    const history = getAllScans(limit);
+
+    let history;
+    if (mongoose.connection.readyState === 1) {
+      history = await Scan.find()
+        .sort({ timestamp: -1, createdAt: -1 })
+        .limit(limit);
+    } else {
+      history = memoryScans.slice(0, limit);
+    }
+
     return res.status(200).json({
       success: true,
       data: history
@@ -53,12 +100,22 @@ router.get('/history', (req, res) => {
 
 /**
  * GET /api/history/:id
- * Retrieve single scan detail
+ * Retrieve single scan detail using Mongoose Scan model
  */
-router.get('/history/:id', (req, res) => {
+router.get('/history/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const scan = getScanById(id);
+    const { id } = req.params;
+    let scan;
+
+    if (mongoose.connection.readyState === 1) {
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        scan = await Scan.findById(id);
+      } else {
+        scan = await Scan.findOne({ _id: id });
+      }
+    } else {
+      scan = memoryScans.find(s => s.id === id || s._id === id);
+    }
 
     if (!scan) {
       return res.status(404).json({ error: 'Scan not found' });
@@ -75,12 +132,25 @@ router.get('/history/:id', (req, res) => {
 
 /**
  * DELETE /api/history/:id
- * Removes a scan by ID
+ * Removes a scan by ID using Mongoose Scan model
  */
-router.delete('/history/:id', (req, res) => {
+router.delete('/history/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    const deleted = deleteScan(id);
+    const { id } = req.params;
+    let deleted = false;
+
+    if (mongoose.connection.readyState === 1) {
+      const result = mongoose.Types.ObjectId.isValid(id)
+        ? await Scan.findByIdAndDelete(id)
+        : await Scan.findOneAndDelete({ _id: id });
+      deleted = !!result;
+    } else {
+      const idx = memoryScans.findIndex(s => s.id === id || s._id === id);
+      if (idx !== -1) {
+        memoryScans.splice(idx, 1);
+        deleted = true;
+      }
+    }
 
     if (!deleted) {
       return res.status(404).json({ error: 'Scan not found or already deleted' });
@@ -98,11 +168,16 @@ router.delete('/history/:id', (req, res) => {
 
 /**
  * DELETE /api/history
- * Clears all history
+ * Clears all history from MongoDB using Mongoose Scan model
  */
-router.delete('/history', (req, res) => {
+router.delete('/history', async (req, res) => {
   try {
-    clearAllScans();
+    if (mongoose.connection.readyState === 1) {
+      await Scan.deleteMany({});
+    } else {
+      memoryScans = [];
+    }
+
     return res.status(200).json({
       success: true,
       message: 'All scan history cleared'
