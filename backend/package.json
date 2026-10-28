@@ -10,9 +10,9 @@
     "test": "node test_server.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
-    "express": "^4.21.2",
-    "mongoose": "^9.11.4"
+    "express": "^4.21.2"
   }
 }

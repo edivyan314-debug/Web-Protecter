@@ -48,7 +48,7 @@ export default function ScanHistory({
               Scan History
             </h3>
             <span className="text-xs text-slate-500 font-mono">
-              Persisted in MongoDB Database
+              Persisted in SQLite Database
             </span>
           </div>
         </div>

@@ -6,10 +6,9 @@ import FeatureBreakdown from './components/FeatureBreakdown';
 import ScanHistory from './components/ScanHistory';
 import { ShieldCheck, AlertCircle, Info, Radio, Lock } from 'lucide-react';
 
-// Base API endpoint - uses VITE_API_URL if configured, falling back to '/api' or 'http://localhost:5000/api'
+// Base API endpoint - uses import.meta.env.VITE_API_URL as the base URL, falling back to http://localhost:5000/api for local development
 const getApiBaseUrl = () => {
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (!envUrl) return '/api';
+  const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
   const cleanUrl = envUrl.trim().replace(/\/$/, '');
   return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
 };
